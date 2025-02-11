@@ -133,7 +133,7 @@ module ActiveRecordCopy
         pack_and_write_with_bufsize(io, [field.to_i], PACKED_UINT_32)
       when :smallint
         pack_and_write_with_bufsize(io, [field.to_i], PACKED_UINT_16)
-      when :numeric
+      when :numeric, :decimal
         encode_numeric(io, field)
       when :real
         pack_and_write_with_bufsize(io, [field], PACKED_FLOAT_32)
@@ -164,7 +164,7 @@ module ActiveRecordCopy
       end
 
       case @column_types[index]
-      when :bigint, :integer, :smallint, :numeric, :float, :real
+      when :bigint, :integer, :smallint, :numeric, :float, :real, :decimal, :date, :time
         write_simple_field(io, field, @column_types[index])
       when :uuid
         pack_and_write_with_bufsize(io, [field.delete('-')], PACKED_HEX_STRING)
@@ -174,10 +174,10 @@ module ActiveRecordCopy
         write_with_bufsize(io, field.dup)
       when :json
         field = if field.is_a?(String)
-                  field.dup
-                else
-                  field.to_json
-                end
+          field.dup
+        else
+          field.to_json
+        end
         write_with_bufsize(io, field.encode(UTF_8_ENCODING))
       when :jsonb
         encode_jsonb(io, field)
@@ -190,6 +190,8 @@ module ActiveRecordCopy
 
     def encode_based_on_input(io, field, index, depth)
       case field
+      when BigDecimal
+        encode_numeric(io, field)
       when Integer
         pack_and_write_with_bufsize(io, [field], PACKED_UINT_32)
       when Float
@@ -200,6 +202,8 @@ module ActiveRecordCopy
         pack_and_write_with_bufsize(io, [0], PACKED_UINT_8)
       when String
         write_with_bufsize(io, field.encode(UTF_8_ENCODING))
+      when Symbol
+        write_with_bufsize(io, field.to_s.encode(UTF_8_ENCODING))
       when Hash
         raise Exception, "Hash's can't contain hashes" if depth > 0
         hash_io = TempBuffer.new
@@ -217,17 +221,17 @@ module ActiveRecordCopy
         encode_ip_addr(io, field)
       when Range
         range_type = case field.begin
-                     when Integer
-                       :int4range
-                     when Float
-                       :numrange
-                     when Time
-                       :tstzrange
-                     when Date
-                       :daterange
-                     else
-                       raise Exception, "Unsupported range input type #{field.begin.class.name} for index #{index}"
-                     end
+        when Integer
+          :int4range
+        when Float
+          :numrange
+        when Time
+          :tstzrange
+        when Date
+          :daterange
+        else
+          raise Exception, "Unsupported range input type #{field.begin.class.name} for index #{index}"
+        end
 
         encode_range(io, field, range_type)
       else
@@ -314,21 +318,21 @@ module ActiveRecordCopy
     RANGE_UB_INF = 0x10 # upper bound is +infinity
     def encode_range(io, range, range_type)
       field_data_type = case range_type
-                        when :int4range
-                          :integer
-                        when :int8range
-                          :bigint
-                        when :numrange
-                          :numeric
-                        when :tsrange
-                          :timestamp
-                        when :tstzrange
-                          :timestamptz
-                        when :daterange
-                          :date
-                        else
-                          raise Exception, "Unsupported range type: #{range_type}"
-                        end
+      when :int4range
+        :integer
+      when :int8range
+        :bigint
+      when :numrange
+        :numeric
+      when :tsrange
+        :timestamp
+      when :tstzrange
+        :timestamptz
+      when :daterange
+        :date
+      else
+        raise Exception, "Unsupported range type: #{range_type}"
+      end
       flags = 0
       flags |= RANGE_LB_INC # Ruby ranges always include the lower bound
       flags |= RANGE_UB_INC unless range.exclude_end?
@@ -348,10 +352,10 @@ module ActiveRecordCopy
     JSONB_FORMAT_VERSION = 1
     def encode_jsonb(io, field)
       field = if field.is_a?(String)
-                field.dup
-              else
-                field.to_json
-              end
+        field.dup
+      else
+        field.to_json
+      end
       buf = [JSONB_FORMAT_VERSION].pack(PACKED_UINT_8) + field.encode(UTF_8_ENCODING)
       write_with_bufsize(io, buf)
     end

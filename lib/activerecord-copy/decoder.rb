@@ -33,12 +33,12 @@ module ActiveRecordCopy
       0.upto(column_count - 1).each do |index|
         field = decode_field(@io)
         row[index] = if field.nil?
-                       field
-                     elsif @options[:column_types][index]
-                       map_field(field, @options[:column_types][index])
-                     else
-                       field
-                     end
+          field
+        elsif @options[:column_types][index]
+          map_field(field, @options[:column_types][index])
+        else
+          field
+        end
       end
       row
     end
